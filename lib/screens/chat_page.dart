@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_client/web_socket_client.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({Key? key, required this.name, required this.id})
@@ -14,8 +18,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  //TODO
-  //final socket = 
+  final socket = WebSocket(Uri.parse('ws://10.200.75.42:8765'));
   final List<types.Message> _messages = [];
   final TextEditingController _messageController = TextEditingController();
   late types.User otherUser;
@@ -113,7 +116,13 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: //TODO adicionar a chamada para o chat
+            child: Chat(
+              messages: _messages,
+              user: me,
+              showUserAvatars: true,
+              showUserNames: true,
+              onSendPressed: _handleSendPressed,
+            ),
           ),
         ],
       ),
