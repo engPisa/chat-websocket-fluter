@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_client/web_socket_client.dart';
+import 'package:image_picker/image_picker.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({Key? key, required this.name, required this.id})
@@ -18,7 +19,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final socket = WebSocket(Uri.parse('ws://localhost:8765'));
+  final socket = WebSocket(Uri.parse('ws://172.17.0.1:8765'));
   final List<types.Message> _messages = [];
   final TextEditingController _messageController = TextEditingController();
   late types.User otherUser;
@@ -27,27 +28,34 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-
-    me = types.User(
-      id: widget.id,
-      firstName: widget.name,
-    );
+    me = types.User(id: widget.id, firstName: widget.name);
 
     socket.messages.listen((incomingMessage) {
-      List<String> parts = incomingMessage.split(' from ');
-      String jsonString = parts[0];
-
-      Map<String, dynamic> data = jsonDecode(jsonString);
+      Map<String, dynamic> data = jsonDecode(incomingMessage);
       String id = data['id'];
-      String msg = data['msg'];
+      String type = data['type'];
       String nick = data['nick'] ?? id;
 
       if (id != me.id) {
-        otherUser = types.User(
-          id: id,
-          firstName: nick,
-        );
-        onMessageReceived(msg);
+        otherUser = types.User(id: id, firstName: nick);
+
+        if (type == "text") {
+          _addMessage(types.TextMessage(
+            author: otherUser,
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            text: data['msg'],
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+          ));
+        } else if (type == "image") {
+          _addMessage(types.ImageMessage(
+            author: otherUser,
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+            uri: data['image'], // Base64 da imagem recebida
+            name: "Imagem",
+            size: 0, // Tamanho pode ser opcional
+          ));
+        }
       }
     }, onError: (error) {
       print("WebSocket error: $error");
@@ -58,20 +66,6 @@ class _ChatPageState extends State<ChatPage> {
     final random = Random.secure();
     final values = List<int>.generate(16, (i) => random.nextInt(255));
     return base64UrlEncode(values);
-  }
-
-  void onMessageReceived(String message) {
-    var newMessage = types.TextMessage(
-      author: otherUser,
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      text: message,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-      metadata: {
-        'senderName': otherUser.firstName,
-        'hora': DateTime.now().millisecondsSinceEpoch.toString()
-      },
-    );
-    _addMessage(newMessage);
   }
 
   void _addMessage(types.Message message) {
@@ -86,13 +80,11 @@ class _ChatPageState extends State<ChatPage> {
       createdAt: DateTime.now().millisecondsSinceEpoch,
       id: randomString(),
       text: text,
-      metadata: {
-        'senderName': me.firstName,
-      },
     );
 
     var payload = {
       'id': me.id,
+      'type': 'text',
       'msg': text,
       'nick': me.firstName,
       'timestamp': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -100,6 +92,36 @@ class _ChatPageState extends State<ChatPage> {
 
     socket.send(json.encode(payload));
     _addMessage(textMessage);
+  }
+
+  Future<void> _sendImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+    if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      final imageMessage = types.ImageMessage(
+        author: me,
+        id: randomString(),
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        uri: base64Image,
+        name: "Imagem",
+        size: bytes.length,
+      );
+
+      var payload = {
+        'id': me.id,
+        'type': 'image',
+        'image': base64Image,
+        'nick': me.firstName,
+        'timestamp': DateTime.now().millisecondsSinceEpoch.toString(),
+      };
+
+      socket.send(json.encode(payload));
+      _addMessage(imageMessage);
+    }
   }
 
   void _handleSendPressed(types.PartialText message) {
@@ -110,11 +132,15 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Seu Chat: ${widget.name}',
-            style: TextStyle(
-              color: Colors.white,
-            )),
+        title:
+            Text('Chat: ${widget.name}', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.deepPurple,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.image),
+            onPressed: _sendImage, // Chama o método para enviar imagem
+          ),
+        ],
       ),
       body: Column(
         children: [

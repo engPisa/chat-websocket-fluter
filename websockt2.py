@@ -1,5 +1,7 @@
 import asyncio
 import websockets
+import json
+import base64
 
 clientes = set()
 
@@ -8,24 +10,48 @@ async def chat(websocket, path):
     cliente_id = id(websocket)
     print(f"Cliente conectado: {cliente_id}")
     clientes.add(websocket)
+    
     try:
         async for message in websocket:
-            mensagem_formatada = f"{message} from {cliente_id}"
+            # Verifica se é mensagem de texto ou imagem
+            message_formatada = json.loads(message)
+
+            tipo = {
+                "text": lambda d: json.dumps({
+                    "type": "text",
+                    "message": d["message"]
+                }),
+                "image": lambda d: json.dumps({
+                    "type": "image",
+                    "image": d["image"]
+                }),
+            }
+
+            # Obtém a função correta e executa, ou retorna erro
+            mensagem_formatada = tipo.get(
+                message_formatada["type"],
+                lambda _: json.dumps({
+                    "type": "error",
+                    "message": "Tipo inválido"
+                })
+            )(message_formatada)
+
             print(f"Mensagem recebida: {mensagem_formatada}")
-            
+
             # Envia a mensagem para todos os clientes conectados
-            for cliente in clientes:
-                await cliente.send(mensagem_formatada)
+            await asyncio.wait(*[cliente
+                                   .send(mensagem_formatada) for cliente in clientes])
+
     except websockets.ConnectionClosed:
         print(f"Conexão perdida com o cliente: {cliente_id}")
+    
     finally:
         clientes.remove(websocket)
-        # Log quando um cliente se desconecta
         print(f"Cliente desconectado: {cliente_id}")
 
-start_server = websockets.serve(chat, "localhost", 8765)
+async def main():
+    async with websockets.serve(chat, "172.17.0.1", 8765):
+        print("🚀🚀 Servidor WebSocket iniciado em ws://172.17.0.1:8765")
+        await asyncio.Future()  # Mantém o servidor rodando
 
-print("Servidor WebSocket iniciado em ws://localhost:8765")
-
-asyncio.get_event_loop().run_until_complete(start_server)
-asyncio.get_event_loop().run_forever()
+asyncio.run(main())
